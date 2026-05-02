@@ -5,20 +5,11 @@ from app.services.reranker import RerankerService
 
 class RetrievalService:
     def __init__(self):
-        # 🔥 Embeddings
         self.embedding_service = EmbeddingService()
-
-        # 🔥 FAISS store
         self.vectorstore = GLOBAL_STORE
-
-        # 🧠 Reranker (NEW)
         self.reranker = RerankerService()
 
     def index_chunks(self, chunks: list[dict]):
-        """
-        Convert chunks → embeddings → store in FAISS
-        """
-
         if not chunks:
             return
 
@@ -32,29 +23,38 @@ class RetrievalService:
 
     def retrieve(self, query: str, top_k: int = 5):
         """
-        1. FAISS retrieval (fast)
-        2. Reranking (smart ordering)
+        1. FAISS retrieval (bigger candidate pool)
+        2. Reranking (final ordering)
         """
 
         if not query or not query.strip():
             return []
 
-        # 🔍 Step 1: FAISS search (get more candidates first)
         query_embedding = self.embedding_service.embed(query)
+
+        # 🔥 IMPROVED: larger pool for better reranking
+        candidate_pool = min(top_k * 5, 25)
 
         raw_results = self.vectorstore.search(
             query_embedding=query_embedding,
-            top_k=top_k * 3   # 🔥 important: expand pool for reranker
+            top_k=candidate_pool
         )
 
         if not raw_results:
             return []
 
-        # 🧠 Step 2: Rerank using cross-encoder
+        # 🔥 FILTER LOW QUALITY CHUNKS
+        filtered = [
+            r for r in raw_results
+            if len(r.get("metadata", {}).get("text", "")) > 20
+        ]
+
+        if not filtered:
+            return []
+
         reranked_results = self.reranker.rerank(
             query=query,
-            chunks=raw_results
+            chunks=filtered
         )
 
-        # ✂️ Step 3: Return top_k only
         return reranked_results[:top_k]

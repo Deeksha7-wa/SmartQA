@@ -5,26 +5,35 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def chunk_text(text: str, chunk_size: int = 800, overlap: int = 150):
+def chunk_text(text: str, chunk_size: int = 900, overlap: int = 150):
     """
-    Simple overlapping chunking strategy.
-    Good balance between performance and retrieval quality.
+    Universal chunking for ANY document:
+    - CVs
+    - PDFs
+    - Articles
+    - Research papers
+    - Notes
     """
 
     text = clean_text(text)
 
+    # 🔥 Step 1: Split on natural boundaries first
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
     chunks = []
-    start = 0
+    current_chunk = ""
 
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
+    # 🔥 Step 2: build sentence-aware chunks (not raw slicing)
+    for sentence in sentences:
+        if len(current_chunk) + len(sentence) <= chunk_size:
+            current_chunk += " " + sentence
+        else:
+            chunks.append(current_chunk.strip())
 
-        chunks.append(chunk)
+            # overlap handling (keep last part for continuity)
+            current_chunk = current_chunk[-overlap:] + " " + sentence
 
-        start = end - overlap  # overlap for context continuity
-
-        if start < 0:
-            start = 0
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
 
     return chunks
