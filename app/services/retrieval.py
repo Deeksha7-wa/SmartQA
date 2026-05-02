@@ -13,7 +13,7 @@ class RetrievalService:
         if not chunks:
             return
 
-        texts = [chunk["text"] for chunk in chunks]
+        texts = [chunk.get("text", "") for chunk in chunks]
         embeddings = self.embedding_service.embed_batch(texts)
 
         self.vectorstore.add(
@@ -23,8 +23,10 @@ class RetrievalService:
 
     def retrieve(self, query: str, top_k: int = 5):
         """
-        1. FAISS retrieval (bigger candidate pool)
-        2. Reranking (final ordering)
+        1. FAISS retrieval (expanded pool)
+        2. Filtering noise
+        3. Reranking
+        4. Deduplication (CRITICAL FIX)
         """
 
         if not query or not query.strip():
@@ -32,8 +34,8 @@ class RetrievalService:
 
         query_embedding = self.embedding_service.embed(query)
 
-        # 🔥 IMPROVED: larger pool for better reranking
-        candidate_pool = min(top_k * 5, 25)
+        # 🔥 bigger pool for better recall
+        candidate_pool = min(top_k * 6, 30)
 
         raw_results = self.vectorstore.search(
             query_embedding=query_embedding,
@@ -43,10 +45,10 @@ class RetrievalService:
         if not raw_results:
             return []
 
-        # 🔥 FILTER LOW QUALITY CHUNKS
+        # 🔥 FILTER BAD / EMPTY TEXT
         filtered = [
             r for r in raw_results
-            if len(r.get("metadata", {}).get("text", "")) > 20
+            if len(r.get("metadata", {}).get("text", "").strip()) > 20
         ]
 
         if not filtered:
@@ -57,4 +59,23 @@ class RetrievalService:
             chunks=filtered
         )
 
-        return reranked_results[:top_k]
+        # 🔥 DEDUPLICATION (FIX FOR REPEATED CV SECTIONS)
+        seen = set()
+        unique_results = []
+
+        for r in reranked_results:
+            text = r.get("metadata", {}).get("text", "")
+
+            # normalize signature for duplicates
+            norm = " ".join(text.lower().split()[:35])
+
+            if norm in seen:
+                continue
+
+            seen.add(norm)
+            unique_results.append(r)
+
+            if len(unique_results) == top_k:
+                break
+
+        return unique_results
