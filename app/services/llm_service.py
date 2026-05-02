@@ -86,7 +86,7 @@ class LLMService:
                     },
                 ],
                 temperature=0.2,
-                max_tokens=1500
+                max_tokens=1800
             )
 
             return response.choices[0].message.content.strip()
