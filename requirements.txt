@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-multipart
+sqlalchemy
+pydantic
+python-dotenv
+openai
+faiss-cpu
+celery
+redis
+pypdf
+python-docx
+celery
+psycopg2-binary
+numpy
+alembic
+pydantic_settings

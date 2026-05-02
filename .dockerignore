@@ -1,0 +1,42 @@
+
+# Python
+.venv
+venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+
+# Environment files
+.env.local
+.env.docker
+
+# Git
+.git
+.gitignore
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Uploads / user files
+uploads/
+*.pdf
+*.docx
+
+
+
+# Vector DB / embeddings
+faiss_index/
+
+# ML / cache folders
+.cache/
+.huggingface/
+.transformers/
