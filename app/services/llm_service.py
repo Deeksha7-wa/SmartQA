@@ -36,7 +36,11 @@ RULES:
   "I could not find this information in the document."
 - Do NOT use outside knowledge.
 - Do NOT hallucinate.
-- Be concise, accurate, and directly answer the question.
+- Provide a COMPLETE and DETAILED answer using all relevant information from the context.
+- Do NOT summarize unless explicitly asked.
+- Do NOT shorten lists, bullet points, or structured data.
+- If the answer contains skills, experience, or any list, return ALL items exactly as present.
+- Preserve formatting from the context whenever possible.
 - If chat history is irrelevant, ignore it.
 
 CONTEXT:
@@ -77,7 +81,8 @@ class LLMService:
                         "role": "system",
                         "content": (
                             "You are a precise document QA assistant. "
-                            "Answer strictly from provided context only."
+                            "Answer strictly from provided context only. "
+                            "Do not summarize or shorten structured information."
                         ),
                     },
                     {
