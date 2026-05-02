@@ -6,11 +6,12 @@ from app.core.config import settings
 
 def build_prompt(context_chunks, question, chat_history=None):
     """
-    Builds a strict RAG prompt that minimizes hallucination
-    and forces answers only from retrieved document chunks.
+    Builds a strict RAG prompt that enforces:
+    - extraction only
+    - structure preservation
+    - no mixing of document sections
     """
 
-    # Handle empty retrieval safely
     if not context_chunks:
         context_text = "No relevant context retrieved from the document."
     else:
@@ -22,32 +23,49 @@ def build_prompt(context_chunks, question, chat_history=None):
             ]
         )
 
-    # Keep only recent chat turns for context continuity
     history_text = ""
     if chat_history:
         history_text = "\n".join(chat_history[-5:])
 
     prompt = f"""
-You are a strict document-based extraction system.
+You are a STRICT DOCUMENT EXTRACTION ENGINE.
 
-RULES:
-- Answer ONLY using the provided CONTEXT.
-- If the answer is not clearly available in the CONTEXT, respond exactly:
+────────────────────────────────────────
+CORE RULES
+────────────────────────────────────────
+- Use ONLY the provided CONTEXT.
+- If answer is not found, say EXACTLY:
   "I could not find this information in the document."
-- Do NOT use outside knowledge.
-- Do NOT hallucinate.
+- NEVER use external knowledge.
+- NEVER hallucinate or infer missing data.
 
-STRICT EXTRACTION MODE:
-- Return information EXACTLY as it appears in the CONTEXT.
-- Do NOT merge, summarize, deduplicate, rewrite, or improve content.
-- Do NOT organize or clean data.
-- Keep ALL repeated information.
-- Preserve formatting exactly as in context.
-- Do NOT shorten lists under any condition.
+────────────────────────────────────────
+STRICT EXTRACTION MODE (CRITICAL)
+────────────────────────────────────────
+- Return text EXACTLY as present in CONTEXT.
+- DO NOT summarize, rewrite, clean, or improve text.
+- DO NOT merge multiple chunks unless they are identical sections.
+- KEEP duplicates if they appear.
+- PRESERVE bullet points, spacing, and ordering.
 
-IMPORTANT OUTPUT RULE:
-- Do NOT cut or truncate responses mid-list.
-- Always complete the full answer before stopping.
+────────────────────────────────────────
+CV / DOCUMENT STRUCTURE RULE (IMPORTANT)
+────────────────────────────────────────
+- Do NOT mix different sections.
+- If question is about:
+    • Employment → ONLY use WORK EXPERIENCE / EXPERIENCE sections
+    • Education → ONLY use EDUCATION sections
+    • Skills → ONLY use SKILLS sections
+- Ignore unrelated sections completely.
+
+────────────────────────────────────────
+OUTPUT RULES
+────────────────────────────────────────
+- Never cut answers mid-section or mid-list.
+- Always complete full section before responding.
+- Maintain original formatting from context.
+
+────────────────────────────────────────
 
 CONTEXT:
 {context_text}
@@ -65,19 +83,10 @@ FINAL ANSWER:
 
 
 class LLMService:
-    """
-    Handles all LLM interactions for SmartQA.
-    Uses OpenAI GPT for strict document-grounded extraction.
-    """
-
     def __init__(self):
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     def generate_answer(self, prompt: str) -> str:
-        """
-        Sends prompt to OpenAI and returns grounded extraction.
-        """
-
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -85,16 +94,12 @@ class LLMService:
                     {
                         "role": "system",
                         "content": (
-                            "You are a strict extraction engine. "
-                            "Return ONLY exact content from context. "
-                            "Never summarize, rewrite, or shorten. "
-                            "Never cut output mid-response."
+                            "You are a strict document extraction engine. "
+                            "You must follow section boundaries and never mix content. "
+                            "Return only exact text from context."
                         ),
                     },
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    },
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.1,
                 max_tokens=3000
@@ -103,4 +108,4 @@ class LLMService:
             return response.choices[0].message.content.strip()
 
         except Exception:
-            return "LLM service temporarily unavailable. Please try again later."
+            return "LLM service temporarily unavailable."

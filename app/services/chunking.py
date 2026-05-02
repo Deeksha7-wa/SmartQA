@@ -5,35 +5,46 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def chunk_text(text: str, chunk_size: int = 900, overlap: int = 150):
+def chunk_text(text: str, chunk_size: int = 900, overlap: int = 120):
     """
-    Universal chunking for ANY document:
-    - CVs
+    Universal chunking for:
+    - CVs (FIXED)
     - PDFs
     - Articles
     - Research papers
-    - Notes
     """
 
     text = clean_text(text)
 
-    # 🔥 Step 1: Split on natural boundaries first
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+    # 🔥 STEP 1: PRIORITIZE STRUCTURE (CV FIX)
+    structured_splits = re.split(
+        r'(WORK EXPERIENCE|EDUCATION|SKILLS|PROJECTS|EXPERIENCE)',
+        text,
+        flags=re.IGNORECASE
+    )
 
     chunks = []
-    current_chunk = ""
+    buffer = ""
 
-    # 🔥 Step 2: build sentence-aware chunks (not raw slicing)
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) <= chunk_size:
-            current_chunk += " " + sentence
-        else:
-            chunks.append(current_chunk.strip())
+    # 🔥 STEP 2: preserve section integrity first
+    for part in structured_splits:
+        part = part.strip()
+        if not part:
+            continue
 
-            # overlap handling (keep last part for continuity)
-            current_chunk = current_chunk[-overlap:] + " " + sentence
+        # sentence fallback inside section
+        sentences = re.split(r'(?<=[.!?])\s+', part)
 
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
+        for sentence in sentences:
+            if len(buffer) + len(sentence) <= chunk_size:
+                buffer += " " + sentence
+            else:
+                if buffer.strip():
+                    chunks.append(buffer.strip())
+
+                buffer = buffer[-overlap:] + " " + sentence
+
+    if buffer.strip():
+        chunks.append(buffer.strip())
 
     return chunks
