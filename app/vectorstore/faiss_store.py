@@ -2,16 +2,15 @@ import faiss
 import numpy as np
 import os
 import pickle
-import hashlib
 
 
 class FAISSStore:
     """
     Production-ready FAISS store for OpenAI embeddings (text-embedding-3-small).
-
     - Fixed dimension = 1536
     - Cosine similarity (via normalization)
-    - OPTIONAL persistence (Docker safe, Render safe)
+    - Persistent index + metadata
+    - Safe retrieval with doc filtering
     """
 
     OPENAI_EMBEDDING_DIM = 1536
@@ -28,59 +27,26 @@ class FAISSStore:
         self.index_path = index_path
         self.meta_path = meta_path
 
-        # ✅ NEW: dedup tracking (safe, in-memory only)
-        self.seen_hashes = set()
-
-        # ✅ Detect if persistence is possible (Render vs Docker safe)
-        self.use_persistence = self._can_use_persistence()
-
-        self._init_index()
         self._load_if_exists()
-
-    # =========================
-    # NEW: HASH FUNCTION
-    # =========================
-    def _get_hash(self, text: str):
-        return hashlib.md5(text.encode("utf-8")).hexdigest()
-
-    # =========================
-    # ENV SAFE PERSISTENCE CHECK
-    # =========================
-    def _can_use_persistence(self):
-        try:
-            test_dir = os.path.dirname(self.index_path) or "."
-            return os.access(test_dir, os.W_OK)
-        except Exception:
-            return False
 
     # =========================
     # INIT INDEX
     # =========================
     def _init_index(self):
+        # Inner product + normalization = cosine similarity
         self.index = faiss.IndexFlatIP(self.dimension)
 
     # =========================
     # LOAD / SAVE
     # =========================
     def _load_if_exists(self):
-        if not self.use_persistence:
-            return
-
         if os.path.exists(self.index_path) and os.path.exists(self.meta_path):
             self.index = faiss.read_index(self.index_path)
 
             with open(self.meta_path, "rb") as f:
                 self.metadata = pickle.load(f)
 
-            # 🔥 rebuild dedup set from existing metadata
-            for meta in self.metadata:
-                text = meta.get("text", "")
-                self.seen_hashes.add(self._get_hash(text))
-
     def _save(self):
-        if not self.use_persistence:
-            return
-
         faiss.write_index(self.index, self.index_path)
 
         with open(self.meta_path, "wb") as f:
@@ -104,34 +70,24 @@ class FAISSStore:
         return vectors
 
     # =========================
-    # ADD VECTORS (FIXED)
+    # ADD VECTORS
     # =========================
     def add(self, embeddings, metadatas):
+        """
+        embeddings: list[list[float]]
+        metadatas: list[dict]
+        """
+
         if len(embeddings) != len(metadatas):
             raise ValueError("Embeddings and metadata length mismatch")
 
-        filtered_embeddings = []
-        filtered_metadatas = []
+        embeddings = self._normalize(embeddings)
 
-        for emb, meta in zip(embeddings, metadatas):
-            text = meta.get("text", "")
-            text_hash = self._get_hash(text)
+        if self.index is None:
+            self._init_index()
 
-            # 🔥 SKIP DUPLICATES
-            if text_hash in self.seen_hashes:
-                continue
-
-            self.seen_hashes.add(text_hash)
-            filtered_embeddings.append(emb)
-            filtered_metadatas.append(meta)
-
-        if not filtered_embeddings:
-            return
-
-        filtered_embeddings = self._normalize(filtered_embeddings)
-
-        self.index.add(filtered_embeddings)
-        self.metadata.extend(filtered_metadatas)
+        self.index.add(embeddings)
+        self.metadata.extend(metadatas)
 
         if self.index.ntotal != len(self.metadata):
             raise RuntimeError("FAISS index and metadata out of sync!")
@@ -142,6 +98,16 @@ class FAISSStore:
     # SEARCH
     # =========================
     def search(self, query_embedding, top_k=5, doc_id=None):
+        """
+        Returns:
+        [
+            {
+                "metadata": {...},
+                "score": float
+            }
+        ]
+        """
+
         if self.index is None or self.index.ntotal == 0:
             return []
 
@@ -157,6 +123,7 @@ class FAISSStore:
 
             meta = self.metadata[idx]
 
+            # optional document filtering
             if doc_id and meta.get("document_id") != doc_id:
                 continue
 
@@ -176,11 +143,9 @@ class FAISSStore:
     def reset(self):
         self.index = None
         self.metadata = []
-        self.seen_hashes = set()
 
-        if self.use_persistence:
-            if os.path.exists(self.index_path):
-                os.remove(self.index_path)
+        if os.path.exists(self.index_path):
+            os.remove(self.index_path)
 
-            if os.path.exists(self.meta_path):
-                os.remove(self.meta_path)
+        if os.path.exists(self.meta_path):
+            os.remove(self.meta_path)
