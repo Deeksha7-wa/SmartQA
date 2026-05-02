@@ -7,10 +7,10 @@ import pickle
 class FAISSStore:
     """
     Production-ready FAISS store for OpenAI embeddings (text-embedding-3-small).
+
     - Fixed dimension = 1536
     - Cosine similarity (via normalization)
-    - Persistent index + metadata
-    - Safe retrieval with doc filtering
+    - OPTIONAL persistence (Docker safe, Render safe)
     """
 
     OPENAI_EMBEDDING_DIM = 1536
@@ -27,19 +27,39 @@ class FAISSStore:
         self.index_path = index_path
         self.meta_path = meta_path
 
+        # ✅ Detect if persistence is possible (Render vs Docker safe)
+        self.use_persistence = self._can_use_persistence()
+
+        self._init_index()
         self._load_if_exists()
+
+    # =========================
+    # ENV SAFE PERSISTENCE CHECK
+    # =========================
+    def _can_use_persistence(self):
+        """
+        Render Free = no reliable disk → disable persistence safely
+        Docker = allowed → enable persistence
+        """
+        try:
+            test_dir = os.path.dirname(self.index_path) or "."
+            return os.access(test_dir, os.W_OK)
+        except Exception:
+            return False
 
     # =========================
     # INIT INDEX
     # =========================
     def _init_index(self):
-        # Inner product + normalization = cosine similarity
         self.index = faiss.IndexFlatIP(self.dimension)
 
     # =========================
     # LOAD / SAVE
     # =========================
     def _load_if_exists(self):
+        if not self.use_persistence:
+            return
+
         if os.path.exists(self.index_path) and os.path.exists(self.meta_path):
             self.index = faiss.read_index(self.index_path)
 
@@ -47,6 +67,9 @@ class FAISSStore:
                 self.metadata = pickle.load(f)
 
     def _save(self):
+        if not self.use_persistence:
+            return
+
         faiss.write_index(self.index, self.index_path)
 
         with open(self.meta_path, "wb") as f:
@@ -73,18 +96,10 @@ class FAISSStore:
     # ADD VECTORS
     # =========================
     def add(self, embeddings, metadatas):
-        """
-        embeddings: list[list[float]]
-        metadatas: list[dict]
-        """
-
         if len(embeddings) != len(metadatas):
             raise ValueError("Embeddings and metadata length mismatch")
 
         embeddings = self._normalize(embeddings)
-
-        if self.index is None:
-            self._init_index()
 
         self.index.add(embeddings)
         self.metadata.extend(metadatas)
@@ -98,16 +113,6 @@ class FAISSStore:
     # SEARCH
     # =========================
     def search(self, query_embedding, top_k=5, doc_id=None):
-        """
-        Returns:
-        [
-            {
-                "metadata": {...},
-                "score": float
-            }
-        ]
-        """
-
         if self.index is None or self.index.ntotal == 0:
             return []
 
@@ -123,7 +128,6 @@ class FAISSStore:
 
             meta = self.metadata[idx]
 
-            # optional document filtering
             if doc_id and meta.get("document_id") != doc_id:
                 continue
 
@@ -144,8 +148,10 @@ class FAISSStore:
         self.index = None
         self.metadata = []
 
-        if os.path.exists(self.index_path):
-            os.remove(self.index_path)
+        # only delete if persistence allowed
+        if self.use_persistence:
+            if os.path.exists(self.index_path):
+                os.remove(self.index_path)
 
-        if os.path.exists(self.meta_path):
-            os.remove(self.meta_path)
+            if os.path.exists(self.meta_path):
+                os.remove(self.meta_path)
