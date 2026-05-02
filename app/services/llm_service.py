@@ -28,7 +28,7 @@ def build_prompt(context_chunks, question, chat_history=None):
         history_text = "\n".join(chat_history[-5:])
 
     prompt = f"""
-You are a strict document-based question answering system.
+You are a strict document-based extraction system.
 
 RULES:
 - Answer ONLY using the provided CONTEXT.
@@ -36,11 +36,17 @@ RULES:
   "I could not find this information in the document."
 - Do NOT use outside knowledge.
 - Do NOT hallucinate.
-- Provide a COMPLETE and DETAILED answer using all relevant information from the context.
-- Do NOT summarize unless explicitly asked.
-- Do NOT shorten lists, bullet points, or structured data.
-- If the answer contains skills, experience, or any list, return ALL items exactly as present.
-- Preserve formatting from the context whenever possible.
+
+- STRICT EXTRACTION MODE:
+  Return information EXACTLY as it appears in the CONTEXT.
+  Do NOT merge, summarize, deduplicate, rewrite, or improve content.
+  Do NOT organize or clean data.
+
+- Treat each chunk independently.
+- If information is repeated, KEEP all occurrences.
+- Preserve original formatting from the context.
+- Do NOT try to make the answer clearer or shorter.
+
 - If chat history is irrelevant, ignore it.
 
 CONTEXT:
@@ -70,7 +76,6 @@ class LLMService:
     def generate_answer(self, prompt: str) -> str:
         """
         Sends prompt to OpenAI and returns grounded answer.
-        Includes fallback protection.
         """
 
         try:
@@ -80,9 +85,9 @@ class LLMService:
                     {
                         "role": "system",
                         "content": (
-                            "You are a precise document QA assistant. "
-                            "Answer strictly from provided context only. "
-                            "Do not summarize or shorten structured information."
+                            "You are a strict extraction engine. "
+                            "Return ONLY exact content from context. "
+                            "Do not summarize, rewrite, or improve anything."
                         ),
                     },
                     {

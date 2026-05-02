@@ -2,6 +2,7 @@ import faiss
 import numpy as np
 import os
 import pickle
+import hashlib
 
 
 class FAISSStore:
@@ -27,6 +28,9 @@ class FAISSStore:
         self.index_path = index_path
         self.meta_path = meta_path
 
+        # ✅ NEW: dedup tracking (safe, in-memory only)
+        self.seen_hashes = set()
+
         # ✅ Detect if persistence is possible (Render vs Docker safe)
         self.use_persistence = self._can_use_persistence()
 
@@ -34,13 +38,15 @@ class FAISSStore:
         self._load_if_exists()
 
     # =========================
+    # NEW: HASH FUNCTION
+    # =========================
+    def _get_hash(self, text: str):
+        return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+    # =========================
     # ENV SAFE PERSISTENCE CHECK
     # =========================
     def _can_use_persistence(self):
-        """
-        Render Free = no reliable disk → disable persistence safely
-        Docker = allowed → enable persistence
-        """
         try:
             test_dir = os.path.dirname(self.index_path) or "."
             return os.access(test_dir, os.W_OK)
@@ -65,6 +71,11 @@ class FAISSStore:
 
             with open(self.meta_path, "rb") as f:
                 self.metadata = pickle.load(f)
+
+            # 🔥 rebuild dedup set from existing metadata
+            for meta in self.metadata:
+                text = meta.get("text", "")
+                self.seen_hashes.add(self._get_hash(text))
 
     def _save(self):
         if not self.use_persistence:
@@ -93,16 +104,34 @@ class FAISSStore:
         return vectors
 
     # =========================
-    # ADD VECTORS
+    # ADD VECTORS (FIXED)
     # =========================
     def add(self, embeddings, metadatas):
         if len(embeddings) != len(metadatas):
             raise ValueError("Embeddings and metadata length mismatch")
 
-        embeddings = self._normalize(embeddings)
+        filtered_embeddings = []
+        filtered_metadatas = []
 
-        self.index.add(embeddings)
-        self.metadata.extend(metadatas)
+        for emb, meta in zip(embeddings, metadatas):
+            text = meta.get("text", "")
+            text_hash = self._get_hash(text)
+
+            # 🔥 SKIP DUPLICATES
+            if text_hash in self.seen_hashes:
+                continue
+
+            self.seen_hashes.add(text_hash)
+            filtered_embeddings.append(emb)
+            filtered_metadatas.append(meta)
+
+        if not filtered_embeddings:
+            return
+
+        filtered_embeddings = self._normalize(filtered_embeddings)
+
+        self.index.add(filtered_embeddings)
+        self.metadata.extend(filtered_metadatas)
 
         if self.index.ntotal != len(self.metadata):
             raise RuntimeError("FAISS index and metadata out of sync!")
@@ -147,8 +176,8 @@ class FAISSStore:
     def reset(self):
         self.index = None
         self.metadata = []
+        self.seen_hashes = set()
 
-        # only delete if persistence allowed
         if self.use_persistence:
             if os.path.exists(self.index_path):
                 os.remove(self.index_path)
