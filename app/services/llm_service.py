@@ -37,17 +37,17 @@ RULES:
 - Do NOT use outside knowledge.
 - Do NOT hallucinate.
 
-- STRICT EXTRACTION MODE:
-  Return information EXACTLY as it appears in the CONTEXT.
-  Do NOT merge, summarize, deduplicate, rewrite, or improve content.
-  Do NOT organize or clean data.
+STRICT EXTRACTION MODE:
+- Return information EXACTLY as it appears in the CONTEXT.
+- Do NOT merge, summarize, deduplicate, rewrite, or improve content.
+- Do NOT organize or clean data.
+- Keep ALL repeated information.
+- Preserve formatting exactly as in context.
+- Do NOT shorten lists under any condition.
 
-- Treat each chunk independently.
-- If information is repeated, KEEP all occurrences.
-- Preserve original formatting from the context.
-- Do NOT try to make the answer clearer or shorter.
-
-- If chat history is irrelevant, ignore it.
+IMPORTANT OUTPUT RULE:
+- Do NOT cut or truncate responses mid-list.
+- Always complete the full answer before stopping.
 
 CONTEXT:
 {context_text}
@@ -67,7 +67,7 @@ FINAL ANSWER:
 class LLMService:
     """
     Handles all LLM interactions for SmartQA.
-    Uses OpenAI GPT for strict document-grounded answers.
+    Uses OpenAI GPT for strict document-grounded extraction.
     """
 
     def __init__(self):
@@ -75,7 +75,7 @@ class LLMService:
 
     def generate_answer(self, prompt: str) -> str:
         """
-        Sends prompt to OpenAI and returns grounded answer.
+        Sends prompt to OpenAI and returns grounded extraction.
         """
 
         try:
@@ -87,7 +87,8 @@ class LLMService:
                         "content": (
                             "You are a strict extraction engine. "
                             "Return ONLY exact content from context. "
-                            "Do not summarize, rewrite, or improve anything."
+                            "Never summarize, rewrite, or shorten. "
+                            "Never cut output mid-response."
                         ),
                     },
                     {
@@ -95,8 +96,8 @@ class LLMService:
                         "content": prompt,
                     },
                 ],
-                temperature=0.2,
-                max_tokens=1800
+                temperature=0.1,
+                max_tokens=3000
             )
 
             return response.choices[0].message.content.strip()
