@@ -209,8 +209,3 @@ Citation highlighting
 docker-compose up --build
 
 ---
-
-# 📬 Links
-
-GitHub Repo: https://github.com/your-username/smart-doc-qa  
-Live API: https://smartqa-bnv4.onrender.com/docs
